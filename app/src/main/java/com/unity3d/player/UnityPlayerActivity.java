@@ -5,11 +5,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.widget.TextView;
+import java.io.File;
 
-/**
- * Fallback x64 host activity when Unity player payload is not yet mounted in ror2_payload.
- * Replaced or hooked by converted game payload once imported.
- */
 public class UnityPlayerActivity extends Activity {
     static {
         try {
@@ -22,15 +19,22 @@ public class UnityPlayerActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        File payloadDir = new File(getFilesDir(), "ror2_payload");
+        String[] files = payloadDir.exists() ? payloadDir.list() : null;
+        int count = files != null ? files.length : 0;
+
         TextView view = new TextView(this);
         view.setGravity(Gravity.CENTER);
         view.setBackgroundColor(0xFF182B31);
         view.setTextColor(0xFFF0F1DF);
-        view.setTextSize(18f);
+        view.setTextSize(17f);
+        view.setPadding(48, 48, 48, 48);
         String abi = (Build.SUPPORTED_64_BIT_ABIS != null && Build.SUPPORTED_64_BIT_ABIS.length > 0)
                 ? Build.SUPPORTED_64_BIT_ABIS[0]
                 : Build.CPU_ABI;
-        view.setText("Risk of Rain 2 · Android x64 (x86_64) Runtime\nActive ABI: " + abi + "\nWaiting for converted PC payload in ror2_payload/");
+        view.setText("Risk of Rain 2 · Native Runtime (" + abi + ")\n\n"
+                + "Файлов в ror2_payload/: " + count + "\n"
+                + "Путь: " + payloadDir.getAbsolutePath());
         setContentView(view);
     }
 }

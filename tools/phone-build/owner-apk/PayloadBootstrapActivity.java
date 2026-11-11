@@ -1,9 +1,9 @@
 package dev.ror2owner.bootstrap;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -14,20 +14,23 @@ import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.ref.WeakReference;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 import org.json.JSONObject;
 
-/** Owns preparation before the unchanged Unity x64 activity starts. */
 public final class PayloadBootstrapActivity extends Activity {
     private static final String ORIGIN = "https://ror2.launcher.local/";
     private static final String ASSETS = "owner-bootstrap/";
+    private static final int PICK_ZIP_REQUEST = 1001;
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static Backend singleton;
     private WebView web;
     private Backend backend;
-    private AlertDialog reviewDialog;
     private boolean handingOff;
 
     static {
@@ -57,15 +60,11 @@ public final class PayloadBootstrapActivity extends Activity {
             setContentView(web);
             web.loadUrl(ORIGIN + "index.html");
         } catch (Throwable t) {
-            backend = null;
-            web = null;
             launchUnityDirectly();
         }
     }
 
     @Override protected void onDestroy() {
-        if (reviewDialog != null && reviewDialog.isShowing()) reviewDialog.dismiss();
-        reviewDialog = null;
         if (backend != null) backend.detach(this);
         backend = null;
         if (web != null) web.destroy();
@@ -73,12 +72,19 @@ public final class PayloadBootstrapActivity extends Activity {
         super.onDestroy();
     }
 
-    @Override public void onBackPressed() {
-        if (handingOff) return;
-        if (web != null && web.canGoBack()) {
-            web.goBack();
-        } else {
-            super.onBackPressed();
+    public void openZipPicker() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        startActivityForResult(Intent.createChooser(intent, "Выберите ZIP-архив с файлами Risk of Rain 2"), PICK_ZIP_REQUEST);
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == PICK_ZIP_REQUEST && resultCode == Activity.RESULT_OK && data != null && data.getData() != null) {
+            if (backend != null) {
+                backend.importZipUri(data.getData());
+            }
         }
     }
 
@@ -89,8 +95,7 @@ public final class PayloadBootstrapActivity extends Activity {
             Intent intent = new Intent();
             intent.setClassName(this, "com.unity3d.player.UnityPlayerActivity");
             startActivity(intent);
-        } catch (Throwable t) {
-            // fallback
+        } catch (Throwable ignored) {
         }
         finish();
     }
@@ -120,6 +125,9 @@ public final class PayloadBootstrapActivity extends Activity {
         private final PayloadStore store;
         private final ProfileStore profiles;
         private WeakReference<PayloadBootstrapActivity> activityRef = new WeakReference<>(null);
+        private volatile String statusOverride = null;
+        private volatile Integer progressOverride = null;
+        private volatile String messageOverride = null;
 
         public Backend(Context context) {
             this.app = context.getApplicationContext();
@@ -137,15 +145,67 @@ public final class PayloadBootstrapActivity extends Activity {
             }
         }
 
+        public void importZipUri(Uri uri) {
+            statusOverride = "preparing";
+            progressOverride = 5;
+            messageOverride = "Распаковка игровых файлов в ror2_payload/...";
+            new Thread(() -> {
+                File outDir = new File(app.getFilesDir(), "ror2_payload");
+                if (!outDir.exists()) outDir.mkdirs();
+                int count = 0;
+                byte[] buffer = new byte[65536];
+                try (InputStream is = app.getContentResolver().openInputStream(uri);
+                     ZipInputStream zis = new ZipInputStream(is)) {
+                    ZipEntry entry;
+                    while ((entry = zis.getNextEntry()) != null) {
+                        File outFile = new File(outDir, entry.getName());
+                        if (!outFile.getCanonicalPath().startsWith(outDir.getCanonicalPath())) {
+                            continue;
+                        }
+                        if (entry.isDirectory()) {
+                            outFile.mkdirs();
+                        } else {
+                            File parent = outFile.getParentFile();
+                            if (parent != null && !parent.exists()) parent.mkdirs();
+                            try (FileOutputStream fos = new FileOutputStream(outFile)) {
+                                int len;
+                                while ((len = zis.read(buffer)) > 0) {
+                                    fos.write(buffer, 0, len);
+                                }
+                            }
+                            count++;
+                            progressOverride = Math.min(95, 5 + (count % 90));
+                            messageOverride = "Распаковано файлов: " + count + " (" + entry.getName() + ")";
+                        }
+                        zis.closeEntry();
+                    }
+                    statusOverride = "ready";
+                    progressOverride = 100;
+                    messageOverride = "Готово! Импортировано файлов: " + count + ". Нажмите Play для запуска.";
+                } catch (Throwable t) {
+                    statusOverride = "error";
+                    progressOverride = null;
+                    messageOverride = "Ошибка распаковки ZIP: " + t.getMessage();
+                }
+            }).start();
+        }
+
         @JavascriptInterface public String getState() {
             try {
                 JSONObject obj = new JSONObject();
-                boolean ready = store.getSummaryJson().optBoolean("exists", false);
-                obj.put("status", ready ? "ready" : "idle");
-                obj.put("progress", ready ? 100 : null);
-                obj.put("message", ready
-                        ? "x64 (x86_64) payload verified and ready to launch."
-                        : "x64 (x86_64) runtime ready (" + Build.CPU_ABI + "). Select or prepare PC game files.");
+                boolean hasPayload = store.getSummaryJson().optBoolean("exists", false);
+                String st = statusOverride != null ? statusOverride : (hasPayload ? "ready" : "idle");
+                obj.put("status", st);
+                if (progressOverride != null) {
+                    obj.put("progress", progressOverride);
+                } else {
+                    obj.put("progress", "ready".equals(st) ? 100 : JSONObject.NULL);
+                }
+                String msg = messageOverride != null ? messageOverride
+                        : ("ready".equals(st)
+                            ? "Файлы игры найдены в ror2_payload/. Нажмите Play для запуска (" + Build.CPU_ABI + ")."
+                            : "Нажмите 'Select game files', чтобы выбрать ZIP с игрой прямо на телефоне (" + Build.CPU_ABI + ").");
+                obj.put("message", msg);
                 JSONObject caps = new JSONObject();
                 caps.put("selectFiles", true);
                 caps.put("prepare", true);
@@ -156,35 +216,26 @@ public final class PayloadBootstrapActivity extends Activity {
                 obj.put("capabilities", caps);
                 return obj.toString();
             } catch (Throwable t) {
-                return "{\"status\":\"idle\",\"progress\":null,\"message\":\"x64 runtime ready\",\"capabilities\":{\"launch\":true}}";
-            }
-        }
-
-        @JavascriptInterface public String getStateJson() {
-            try {
-                JSONObject obj = new JSONObject();
-                obj.put("architecture", "x86_64");
-                obj.put("payloadState", store.getSummaryJson());
-                obj.put("profilesState", profiles.getSummaryJson());
-                return obj.toString();
-            } catch (Throwable t) {
-                return "{}";
+                return "{\"status\":\"idle\",\"progress\":null,\"message\":\"Ready\",\"capabilities\":{\"selectFiles\":true,\"prepare\":true,\"launch\":true}}";
             }
         }
 
         @JavascriptInterface public boolean invoke(String action) {
             if ("launch".equals(action)) {
-                launchGame();
+                MAIN.post(() -> {
+                    PayloadBootstrapActivity act = activityRef.get();
+                    if (act != null) act.launchUnityDirectly();
+                });
+                return true;
+            }
+            if ("selectFiles".equals(action) || "prepare".equals(action) || "retry".equals(action)) {
+                MAIN.post(() -> {
+                    PayloadBootstrapActivity act = activityRef.get();
+                    if (act != null) act.openZipPicker();
+                });
                 return true;
             }
             return true;
-        }
-
-        @JavascriptInterface public void launchGame() {
-            MAIN.post(() -> {
-                PayloadBootstrapActivity act = activityRef.get();
-                if (act != null) act.launchUnityDirectly();
-            });
         }
     }
 }
