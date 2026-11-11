@@ -21,7 +21,7 @@ public static class BootstrapBuild
         PlayerSettings.productName = "X64 Bootstrap Smoke";
         PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android, "dev.localbootstrap.x64smoke");
         PlayerSettings.SetScriptingBackend(BuildTargetGroup.Android, ScriptingImplementation.IL2CPP);
-        PlayerSettings.Android.targetArchitectures = AndroidArchitecture.X86_64;
+        PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64 | AndroidArchitecture.X86_64;
         PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel23;
         PlayerSettings.Android.targetSdkVersion = AndroidSdkVersions.AndroidApiLevel30;
         PlayerSettings.Android.preferredInstallLocation = AndroidPreferredInstallLocation.Auto;

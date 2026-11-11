@@ -10,6 +10,6 @@ PlayerSettings:
   AndroidBundleVersionCode: 1
   AndroidMinSdkVersion: 23
   AndroidTargetSdkVersion: 30
-  AndroidTargetArchitectures: 8
+  AndroidTargetArchitectures: 10
   AndroidTargetDevices: 0
   AndroidBuildApkPerCpuArchitecture: 0

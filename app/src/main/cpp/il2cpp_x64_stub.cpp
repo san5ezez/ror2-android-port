@@ -1,10 +1,10 @@
 #include <android/log.h>
 
-#if !defined(__x86_64__)
-#error "libil2cpp target must be x86_64!"
+#if !defined(__x86_64__) && !defined(__aarch64__)
+#error "libil2cpp target must be arm64-v8a or x86_64!"
 #endif
 
-extern "C" int ror2_il2cpp_x64_entry(void) {
-    __android_log_print(ANDROID_LOG_INFO, "RoR2_IL2CPP_x64", "libil2cpp.so (x86_64) initialized");
+extern "C" int ror2_il2cpp_entry(void) {
+    __android_log_print(ANDROID_LOG_INFO, "RoR2_IL2CPP", "libil2cpp.so (arm64-v8a / x86_64) initialized");
     return 0;
 }

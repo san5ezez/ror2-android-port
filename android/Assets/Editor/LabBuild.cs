@@ -51,7 +51,7 @@ public static class LabBuild {
         string api=cfg.api??"vulkan";
         PlayerSettings.SetApplicationIdentifier(BuildTargetGroup.Android,"dev.ror2lab.x86_64");
         PlayerSettings.SetScriptingBackend(BuildTargetGroup.Android,ScriptingImplementation.IL2CPP);
-        PlayerSettings.Android.targetArchitectures=AndroidArchitecture.X86_64;
+        PlayerSettings.Android.targetArchitectures=AndroidArchitecture.ARM64 | AndroidArchitecture.X86_64;
         result.backend="IL2CPP X86_64 "+api;
         var report=BuildPipeline.BuildPlayer(new BuildPlayerOptions{scenes=new[]{"Assets/Lab.unity"},locationPathName=result.apk,target=BuildTarget.Android,options=BuildOptions.None});
         result.success=report.summary.result==BuildResult.Succeeded;
