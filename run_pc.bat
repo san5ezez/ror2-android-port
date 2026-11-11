@@ -1,23 +1,77 @@
 @echo off
-chcp 65001 >nul
-title Risk of Rain 2 - Подготовка файлов для Android
-cd /d "%~dp0"
-
-where python >nul 2>nul
-if %errorlevel% equ 0 (
-    python "%~dp0send_to_phone.py" %*
-    goto :end
-)
-
-where py >nul 2>nul
-if %errorlevel% equ 0 (
-    py -3 "%~dp0send_to_phone.py" %*
-    goto :end
-)
-
-echo [Ошибка] Python не найден на этом ПК!
-echo Скачайте и установите Python с https://www.python.org/downloads/ (при установке поставьте галочку "Add Python to PATH").
-
-:end
-echo.
+title Risk of Rain 2 - PC to Android Packager
+cd /d \"%~dp0\"
+powershell -NoProfile -ExecutionPolicy Bypass -Command \"$s = Get-Content -Raw '%~f0'; $i = $s.IndexOf('# === PS_START ==='); Invoke-Expression $s.Substring($i)\"
 pause
+exit /b
+
+# === PS_START ===
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Write-Host '================================================================' -ForegroundColor Cyan
+Write-Host '  Risk of Rain 2 -> Android (ARM64 / x64) | Standalone Packager' -ForegroundColor Cyan
+Write-Host '================================================================' -ForegroundColor Cyan
+
+$candidates = @(
+    'C:\Program Files (x86)\Steam\steamapps\common\Risk of Rain 2',
+    'C:\Program Files\Steam\steamapps\common\Risk of Rain 2',
+    'D:\SteamLibrary\steamapps\common\Risk of Rain 2',
+    'D:\Steam\steamapps\common\Risk of Rain 2',
+    'E:\SteamLibrary\steamapps\common\Risk of Rain 2',
+    'E:\Steam\steamapps\common\Risk of Rain 2',
+    'F:\SteamLibrary\steamapps\common\Risk of Rain 2'
+)
+
+foreach ($rk in @('HKCU:\Software\Valve\Steam', 'HKLM:\SOFTWARE\WOW6432Node\Valve\Steam')) {
+    if (Test-Path $rk) {
+        $sp = (Get-ItemProperty $rk -ErrorAction SilentlyContinue).SteamPath
+        if ($sp) {
+            $candidates = @((Join-Path $sp 'steamapps\common\Risk of Rain 2')) + $candidates
+            $vdf = Join-Path $sp 'steamapps\libraryfolders.vdf'
+            if (Test-Path $vdf) {
+                Select-String -Path $vdf -Pattern '\"path\"\s+\"([^\"]+)\"' | ForEach-Object {
+                    $lp = $_.Matches[0].Groups[1].Value -replace '\\\\', '\'
+                    $candidates += (Join-Path $lp 'steamapps\common\Risk of Rain 2')
+                }
+            }
+        }
+    }
+}
+
+$gameDir = $null
+foreach ($c in $candidates) {
+    if ($c -and (Test-Path $c)) { $gameDir = (Resolve-Path $c).Path; break }
+}
+
+if (-not $gameDir) {
+    Write-Host ''
+    $inputPath = Read-Host 'Drag & drop your [Risk of Rain 2] folder here and press Enter'
+    $inputPath = $inputPath.Trim('\"', \"'\", ' ')
+    if (-not (Test-Path $inputPath)) {
+        Write-Host \"[Error] Folder not found: $inputPath\" -ForegroundColor Red
+        exit 1
+    }
+    $gameDir = (Resolve-Path $inputPath).Path
+}
+
+$outZip = Join-Path $PSScriptRoot 'ror2-game-files.zip'
+if (Test-Path $outZip) { Remove-Item $outZip -Force }
+
+Write-Host \"`n[1/2] Found game folder: $gameDir\" -ForegroundColor Green
+Write-Host \"      Creating archive: $outZip (please wait 1-3 minutes)...\" -ForegroundColor Yellow
+
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[System.IO.Compression.ZipFile]::CreateFromDirectory($gameDir, $outZip, [System.IO.Compression.CompressionLevel]::Fastest, $false)
+
+$sizeMb = [Math]::Round((Get-Item $outZip).Length / 1MB, 1)
+Write-Host \"  [OK] Archive created: $outZip ($sizeMb MB)\" -ForegroundColor Green
+
+$adb = Get-Command adb -ErrorAction SilentlyContinue
+if ($adb) {
+    Write-Host \"`n[2/2] ADB found. Pushing ror2-game-files.zip to /sdcard/Download/...\" -ForegroundColor Cyan
+    & adb push $outZip '/sdcard/Download/ror2-game-files.zip'
+} else {
+    Write-Host \"`n[2/2] Copy 'ror2-game-files.zip' to your phone's Download folder via USB cable.\" -ForegroundColor Cyan
+}
+
+Write-Host \"`nDone! Open the RoR2 APK on your phone -> Set up -> Select game files -> pick ror2-game-files.zip\" -ForegroundColor Green
